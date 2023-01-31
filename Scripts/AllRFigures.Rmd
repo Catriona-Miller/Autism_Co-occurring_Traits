@@ -1,0 +1,349 @@
+---
+title: "Autism Co-occurring traits R Figures"
+output: html_notebook
+---
+
+```{r}
+require(tidyverse)
+library(readxl)
+library(ggplot2)
+library(hrbrthemes)
+library(viridis)
+library(pheatmap)
+library(gprofiler2)
+library(igraph)
+library(dplyr)
+```
+
+## Bubbleplot
+# Both Fetal and Adult on same graph
+
+```{r}
+#Read in data
+library(readxl)
+# BubbleplotData.xlsx contains the output of both the fetal and adult m3d analysis (i.e. significant_enrichment_bootstrap.txt - supplementary table S3) combined with labels based on the groupings. No changes were made to the data except to add these labels as an extra column for ease of use.
+Both_m3 <- read_excel("BubbleplotData.xlsx")
+
+#Plot
+pdf("autism_multimorbidities.pdf",width=15, height=15)
+bothm3 <- ggplot(Both_m3, aes(x=Level, y=reorder(trait,Order), size=trait_eqtls, fill=-log(adj_pval), text=6)) + geom_count(alpha=0.7,shape=21) +
+  scale_size(range=c(.1,10),name="Number of eQTLs") + labs(y="Phenotype") +
+  scale_fill_viridis_c(name="-log(Adjusted p-value)") +
+  theme(panel.background = element_blank(), panel.border = element_rect(colour="black",fill=NA, size=1)) +
+  facet_grid(cols=vars(Tissue)) + 
+  theme_bw()
+bothm3
+dev.off()
+```
+
+
+## Heatmaps (genes vs traits) at all levels
+# currently set for fetal, rename to adult and rerun for adult
+#level 0
+```{r}
+# The upper limit where we keep all gene-trait interactions the same colour. Keep same for all heatmaps
+X = 50
+
+level0_sig_trait_gene <- read.delim('m3d_fetal_ld/level0_sig_interactions.txt',header=TRUE)
+
+# only take trait and gene info
+l0_trait_gene.df <- level0_sig_trait_gene
+l0.df <- table(l0_trait_gene.df[c("trait","gene")])
+
+l0_df <- as.data.frame.matrix(l0.df)
+desired_df <- l0_df %>% select_if(~any(. >= 2 ))
+desired_df[desired_df > X] <- X # set those bigger than X to X to try and decrease the colour scale (i.e. now the darkest colour represents X+) 
+
+pheatmap(desired_df,color=hcl.colors(80,"Oslo"),cluster_cols=T,cluster_rows=T,cellheight=9,cellwidth=9,fontsize=8, filename="m3d_fetal_ld/fetal_level0.pdf")
+```
+
+
+#level 1
+```{r}
+level1_sig_trait_gene <- read.delim('m3d_fetal_ld/level1_sig_interactions.txt',header=TRUE)
+
+l1_trait_gene.df <- level1_sig_trait_gene
+l1.df <- table(l1_trait_gene.df[c("trait","gene")])
+
+l1_df <- as.data.frame.matrix(l1.df)
+desired_df <- l1_df %>% select_if(~any(. >= 2 ))
+desired_df[desired_df > X] <- X # set those bigger than X to X to try and decrease the colour scale (i.e. now the darkest colour represents X+) 
+
+pheatmap(desired_df,color=hcl.colors(80,"Oslo"),cluster_cols=T,cluster_rows=T,cellheight=20,cellwidth=20,fontsize=8, filename="m3d_fetal_ld/fetal_level1.pdf")
+```
+
+
+#level 2
+```{r}
+level2_sig_trait_gene <- read.delim('m3d_fetal_ld/level2_sig_interactions.txt',header=TRUE)
+
+l2_trait_gene.df <- level2_sig_trait_gene
+l2.df <- table(l2_trait_gene.df[c("trait","gene")])
+
+l2_df <- as.data.frame.matrix(l2.df)
+desired_df <- l2_df %>% select_if(~any(. >= 2 ))
+desired_df[desired_df > X] <- X # set those bigger than X to X to try and decrease the colour scale (i.e. now the darkest colour represents X+) 
+
+pheatmap(desired_df,color=hcl.colors(80,"Oslo"),cluster_cols=T,cluster_rows=T,cellheight=18,cellwidth=18,fontsize=8, filename="m3d_fetal_ld/fetal_level2.pdf")
+```
+
+
+#level 3
+```{r}
+level3_sig_trait_gene <- read.delim('m3d_fetal_ld/level3_sig_interactions.txt',header=TRUE)
+
+l3_trait_gene.df <- level3_sig_trait_gene
+l3.df <- table(l3_trait_gene.df[c("trait","gene")])
+
+l3_df <- as.data.frame.matrix(l3.df)
+desired_df <- l3_df %>% select_if(~any(. >= 2 ))
+desired_df[desired_df > X] <- X # set those bigger than X to X to try and decrease the colour scale (i.e. now the darkest colour represents X+) 
+
+pheatmap(desired_df,color=hcl.colors(80,"Oslo"),cluster_cols=T,cluster_rows=T,cellheight=9,cellwidth=9,fontsize=8, filename="m3d_fetal_ld/fetal_level3.pdf")
+```
+
+
+#level 4
+```{r}
+level4_sig_trait_gene <- read.delim('m3d_fetal_ld/level4_sig_interactions.txt',header=TRUE)
+
+l4_trait_gene.df <- level4_sig_trait_gene
+l4.df <- table(l4_trait_gene.df[c("trait","gene")])
+
+l4_df <- as.data.frame.matrix(l4.df)
+desired_df <- l4_df %>% select_if(~any(. >= 2 ))
+desired_df[desired_df > X] <- X # set those bigger than X to X to try and decrease the colour scale (i.e. now the darkest colour represents X+) 
+
+pheatmap(desired_df,color=hcl.colors(80,"Oslo"),cluster_cols=T,cluster_rows=T,cellheight=10,cellwidth=10,fontsize=8, filename="m3d_fetal_ld/fetal_level4.pdf")
+```
+
+
+
+## LOEUF Figure & Analysis
+```{r}
+# downloaded 24 AUG 2022 from https://gnomad.broadinstitute.org/downloads#v2-constraint pLoF Metrics by Gene TSV
+LOEUF_data <- read.delim(gzfile('gnomad.v2.1.1.lof_metrics.by_gene.txt.bgz')) %>% select(gene, oe_lof_upper)
+# AdultGenes and FetalGenes were made by taking the gene and interaction type for each level from the sig_interactions_fetal/adult_reg (ld) excel files which is the output of the regulation Jupyter Notebook
+
+Adultgenes <- read_excel('adultgenes_ld.xlsx')
+Fetalgenes <- read_excel('fetalgenes_ld.xlsx')
+```
+
+```{r}
+# Match LD data with the genes
+fetal_genesLOEUF <- left_join(Fetalgenes,LOEUF_data, by = c("gene"="gene"))
+adult_genesLOEUF <- left_join(Adultgenes, LOEUF_data, by = c("gene"="gene"))
+head(fetal_genesLOEUF)
+```
+```{r}
+# This export is so I can look at the data in full and see how many didn't have a LOEUF score in the gnomad database. Below I will remove the NAs (i.e. do an inner merge) for making the plots
+write.csv(fetal_genesLOEUF,'fetalLOEUFscores_all.csv',row.names = FALSE)
+write.csv(adult_genesLOEUF,'adultLOEUFscores_all.csv',row.names = FALSE)
+```
+
+```{r}
+# remove duplicate genes and NAs (i.e. make it an inner join)
+fetal_genesLOEUF <- fetal_genesLOEUF %>% distinct(gene, .keep_all = TRUE) 
+adult_genesLOEUF <- adult_genesLOEUF %>% distinct(gene, .keep_all = TRUE)
+fetal_genesLOEUF <- fetal_genesLOEUF %>% drop_na(oe_lof_upper)
+adult_genesLOEUF <- adult_genesLOEUF %>% drop_na(oe_lof_upper)
+```
+
+```{r}
+# Set all outer fetal levels to 1 so that can compare inner levels against all outer
+fetal_genesLOEUF["level"][fetal_genesLOEUF["level"] > 0] <- 1
+fetal_genesLOEUF$level <- as.factor(fetal_genesLOEUF$level)
+
+# Plot
+fetal <- ggplot(fetal_genesLOEUF, aes(x=level,y=oe_lof_upper)) + geom_violin(fill="#87ceeb") + geom_boxplot(width=0.1, color="black", alpha=0.2) + theme_bw()
+fetal + labs(y = "LOEUF score", x = "Level", title = "Fetal genes LOEUF analysis")
+#ggsave("fetal_LOEUF_outer.pdf")
+```
+
+```{r}
+# Repeat for adult
+adult_genesLOEUF["level"][adult_genesLOEUF["level"] > 0] <- 1
+adult_genesLOEUF$level <- as.factor(adult_genesLOEUF$level)
+adult <- ggplot(adult_genesLOEUF, aes(x=level,y=oe_lof_upper)) + geom_violin(fill="#87ceeb") + geom_boxplot(width=0.1, color="black", alpha=0.2) + labs(y = "LOEUF analysis", x = "Level", title = "Adult genes LOEUF analysis") + theme_bw()
+adult
+#ggsave("adult_LOEUF_outer.pdf")
+```
+
+
+```{r}
+# Comparing the inner and outer levels to all genes expressed so downloading 'all genes expressed' for fetal and adult cortical tissue
+# fetal
+all_fetal <- read.table(gzfile("fetal_brain.gene_tpm_median.gct.gz"), skip = 2, sep = "\t", header=T) 
+
+# adult
+all_adult <- read.table(gzfile("GTEx_Analysis_2017-06-05_v8_RNASeQCv1.1.9_gene_median_tpm.gct.gz"), skip = 2, sep = "\t", header=T)
+
+```
+
+```{r}
+# remove zeroes from fetal (i.e. ones without gene expression)
+all_fetal <- all_fetal[apply(all_fetal!=0, 1, all),]
+
+# remove zeroes from adult after selecting just brain cortex
+all_adult <- all_adult[, c("Name","Description","Brain...Cortex")]
+all_adult <- all_adult[apply(all_adult!=0,1,all),]
+```
+
+```{r}
+# get LOEUF details on these
+all_fetal_genesLOEUF <- inner_join(all_fetal,LOEUF_data, by = c("Description"="gene"))
+all_adult_genesLOEUF <- inner_join(all_adult, LOEUF_data, by = c("Description"="gene"))
+```
+
+```{r}
+# redo violin plots with these
+#prepping all genes
+all_fetal_genesLOEUF <- all_fetal_genesLOEUF[,c("Description","oe_lof_upper")]
+all_fetal_genesLOEUF <- all_fetal_genesLOEUF %>% rename("gene"="Description")
+all_fetal_genesLOEUF$level <- 2
+all_fetal_genesLOEUF$level <- as.factor(all_fetal_genesLOEUF$level)
+
+#prepping autism genes
+fetal_genesLOEUF <- fetal_genesLOEUF[,c("gene","oe_lof_upper","level")]
+fetal_genesLOEUF["level"][fetal_genesLOEUF["level"] > 0] <- 1
+fetal_genesLOEUF$level <- as.factor(fetal_genesLOEUF$level)
+
+
+fetal_plot <- rbind(fetal_genesLOEUF, all_fetal_genesLOEUF)
+fetal_every <- ggplot(fetal_plot, aes(x=level,y=oe_lof_upper)) + geom_violin(fill="#87ceeb") + geom_boxplot(width=0.1, color="black", alpha=0.2) + theme_bw() + labs(y = "LOEUF analysis", x = "Level", title = "Fetal genes LOEUF analysis")
+fetal_every
+ggsave("fetal_LOEUF_compare.pdf")
+```
+
+```{r}
+# adult
+
+# redo violin plots with these
+#prepping all genes
+all_adult_genesLOEUF <- all_adult_genesLOEUF[,c("Description","oe_lof_upper")]
+all_adult_genesLOEUF <- all_adult_genesLOEUF %>% rename("gene"="Description")
+all_adult_genesLOEUF$level <- 2
+all_adult_genesLOEUF$level <- as.factor(all_adult_genesLOEUF$level)
+
+#prepping autism genes
+adult_genesLOEUF <- adult_genesLOEUF[,c("gene","oe_lof_upper","level")]
+adult_genesLOEUF["level"][adult_genesLOEUF["level"] > 0] <- 1
+adult_genesLOEUF$level <- as.factor(adult_genesLOEUF$level)
+
+
+adult_plot <- rbind(adult_genesLOEUF, all_adult_genesLOEUF)
+adult_every <- ggplot(adult_plot, aes(x=level,y=oe_lof_upper)) + geom_violin(fill="#87ceeb") + geom_boxplot(width=0.1, color="black", alpha=0.2) + theme_bw() + labs(y = "LOEUF analysis", x = "Level", title = "Adult genes LOEUF analysis")
+adult_every
+ggsave("adult_LOEUF_compare.pdf")
+
+```
+
+# Significance tests
+```{r}
+#adult
+outer_comp_a <- adult_plot[!(adult_plot$level == 0),]
+wilcox.test(oe_lof_upper ~ level, data = outer_comp_a)
+inner_comp_a <- adult_plot[!(adult_plot$level == 1),]
+wilcox.test(oe_lof_upper ~ level, data = inner_comp_a)
+
+#fetal
+outer_comp_f <- fetal_plot[!(fetal_plot$level == 0),]
+wilcox.test(oe_lof_upper ~ level, data = outer_comp_f)
+inner_comp_f <- fetal_plot[!(fetal_plot$level == 1),]
+wilcox.test(oe_lof_upper ~ level, data = inner_comp_f)
+```
+
+
+## Pathway Analysis
+```{r}
+# read in genes
+# These files are the output of multimorbid3d. They are also replicated in supplementary tables S4 and S5
+l0f <- read_delim('m3d_fetal/level0_sig_interactions.txt',delim="\t")
+l0gf <- unique(l0f$gene)
+l1f <- read_delim('m3d_fetal/level1_sig_interactions.txt',delim="\t")
+l1gf <- unique(l1f$gene)
+l2f <- read_delim('m3d_fetal/level2_sig_interactions.txt',delim="\t")
+l2gf <- unique(l2f$gene)
+l3f <- read_delim('m3d_fetal/level3_sig_interactions.txt',delim="\t")
+l3gf <- unique(l3f$gene)
+l4f <- read_delim('m3d_fetal/level4_sig_interactions.txt',delim="\t")
+l4gf <- unique(l4f$gene)
+l0a <- read_delim('m3d_adult/level0_sig_interactions.txt',delim="\t")
+l0ga <- unique(l0a$gene)
+l1a <- read_delim('m3d_adult/level1_sig_interactions.txt',delim="\t")
+l1ga <- unique(l1a$gene)
+l2a <- read_delim('m3d_adult/level2_sig_interactions.txt',delim="\t")
+l2ga <- unique(l2a$gene)
+l3a <- read_delim('m3d_adult/level3_sig_interactions.txt',delim="\t")
+l3ga <- unique(l3a$gene)
+l4a <- read_delim('m3d_adult/level4_sig_interactions.txt',delim="\t")
+l4ga <- unique(l4a$gene)
+
+# merge all outer level genes
+fetal_all <- c(l1gf, l2gf, l3gf, l4gf)
+adult_all <- c(l1ga, l2ga, l3ga, l4ga)
+```
+
+```{r}
+# function for calling KEGG
+query_path <- function(genes)
+      tryCatch({
+        t <- gost(query = genes, organism = "hsapiens", ordered_query =
+                  FALSE, multi_query = FALSE, significant = TRUE,
+                  exclude_iea = FALSE,
+                  measure_underrepresentation = FALSE, evcodes = TRUE,
+                  user_threshold = 0.05, correction_method = "fdr",
+                  domain_scope = "known", custom_bg = NULL,
+                  numeric_ns = "", sources = c("KEGG"))
+        return(t)
+        }, error=function(e){
+            cat("ERROR: ", conditionMessage(e), "\n")
+        })
+```
+
+```{r}
+# Call function
+fetal_0_path <- query_path(l0gf)
+fetal_outer_path <- query_path(fetal_all)
+adult_0_path <- query_path(l0ga)
+adult_outer_path <- query_path(adult_all)
+```
+
+```{r}
+fetal_0.df <- apply(fetal_0_path$result,2,as.character)
+fetal_outer.df <- apply(fetal_outer_path$result,2,as.character)
+adult_0.df <- apply(adult_0_path$result,2,as.character)
+adult_outer.df <- apply(adult_outer_path$result,2,as.character)
+```
+
+```{r}
+# Find any intersection between level 0 pathways and outer levels by merging them
+fetal_merged <- merge(fetal_0.df, fetal_outer.df, by.x = 'term_name', by.y = 'term_name')
+adult_merged <- merge(adult_0.df, adult_outer.df, by.x = 'term_name', by.y = 'term_name')
+```
+
+```{r}
+# Output spreadsheet of pathway info
+write_delim(fetal_merged, 'fetal_pathways.xlsx')
+write_delim(adult_merged, 'adult_pathways.xlsx')
+```
+
+
+## IDI NZ Population Figure
+```{r}
+idi_results <- read_excel("autism_cooccur.xlsx")
+# This file contains the conditions identified in the IDI analysis (supplementary table S12) that overlap with traits/conditions identified in the multimorbid3d analysis (supplementary table S3). Nothing was changed from S12, only the intersection copied over into this table. 
+options(repr.plot.width = 6, repr.plot.height = 14)
+idi_results %>%
+    ggplot(aes(x = fct_reorder(cooccur, log10_or), y = log10_or))+
+    geom_pointrange(aes(ymin = log10_or_low, ymax = log10_or_up), alpha = 0.5)+
+    geom_hline(yintercept = 0, colour = "red", linetype = "dashed")+    
+    coord_flip()+
+    theme_minimal()+
+    labs(x = "Conditions", y = expression(Log[10]~"(Odds ratio)"))
+ggsave("comorbidity_idi.pdf", width = 8, height =5, useDingbats=FALSE)
+```
+
+
+
+
