@@ -171,7 +171,7 @@ adult
 
 
 ```{r}
-# Comparing the inner and outer levels to all genes expressed so downloading 'all genes expressed' for fetal and adult cortical tissue
+# Comparing the inner and outer levels to all genes expressed so downloading 'all genes expressed' for fetal and adult cortical tissue. These come from GTEx and Walker et al. fetal database (see manuscript for GRN references).
 # fetal
 all_fetal <- read.table(gzfile("fetal_brain.gene_tpm_median.gct.gz"), skip = 2, sep = "\t", header=T) 
 
