@@ -1,0 +1,288 @@
+---
+title: "AutismCooccurring"
+author: "Catriona Miller"
+date: "9/13/2022"
+output: html_document
+---
+
+Before running code, set your working repository to be within autism folder containing this code, a data folder, and a results folder. Before the first run the two subfolders will be empty except for the indexDiseaseCode.txt file inside the data folder. This code is to be run within the IDI.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r, echo=FALSE}
+require(dbplyr)
+require(tidyverse)
+# The below libraries may not be used, they are just required for the comoRbidity package (I didn't check which functions inside the package require them, therefore it might not be comoRbidityAnalysis or query). disgenet2r is also required for some of comoRbidity but not comoRbidityAnalysis or query and it's not already downloaded so didn't try.
+require(parallel)
+require(stringr)
+require(igraph)
+require(ggplot2)
+require(plotrix)
+require(plyr)
+require(reshape)
+require(gridExtra)
+require(scales)
+require(plotly)
+require(RCurl)
+require(gtools)
+require(shiny)
+require(tidyr)
+```
+
+
+```{r, echo=FALSE}
+# As there were problems installing comoRbidity, I saved the package in My-R-User-Libraries and individually loaded functions. Again, most of these aren't actually used I just didn't check which.
+source("~/My-R-User-Libraries/comoRbidity/R/comorbidityAnalysis.R")
+source("~/My-R-User-Libraries/comoRbidity/R/query.R")
+source("~/My-R-User-Libraries/comoRbidity/R/AllClasses.R")
+source("~/My-R-User-Libraries/comoRbidity/R/allGenerics.R")
+source("~/My-R-User-Libraries/comoRbidity/R/cAnalysis-extract.R")
+source("~/My-R-User-Libraries/comoRbidity/R/codeUse.R")
+source("~/My-R-User-Libraries/comoRbidity/R/comoRbidity-extract.R")
+source("~/My-R-User-Libraries/comoRbidity/R/comorbidity-show.R")
+source("~/My-R-User-Libraries/comoRbidity/R/directionality.R")
+source("~/My-R-User-Libraries/comoRbidity/R/diseasePrevalence.R")
+source("~/My-R-User-Libraries/comoRbidity/R/extractIndexDisease.R")
+source("~/My-R-User-Libraries/comoRbidity/R/getUrl.R")
+source("~/My-R-User-Libraries/comoRbidity/R/heatmap.R")
+source("~/My-R-User-Libraries/comoRbidity/R/network.R")
+source("~/My-R-User-Libraries/comoRbidity/R/populationAge.R")
+source("~/My-R-User-Libraries/comoRbidity/R/pValueEstimation.R")
+source("~/My-R-User-Libraries/comoRbidity/R/sexRatio.R")
+source("~/My-R-User-Libraries/comoRbidity/R/summaryDB.R")
+source("~/My-R-User-Libraries/comoRbidity/R/summaryDiseases.R")
+```
+
+
+```{r, echo=FALSE}
+# icdcoder had the same problems as comoRbidity
+source("~/My-R-User-Libraries/icdcoder-master/R/validation.r")
+load("~/My-R-User-Libraries/icdcoder-master/data/icd10Comorbidities.rda")
+#load("~/My-R-User-Libraries/icdcoder-master/data/icd10Hierarchy.rda") # need to load these two manually, fails for some reason #load("~/My-R-User-Libraries/icdcoder-master/data/icd10to9GEMs.rda")
+load("~/My-R-User-Libraries/icdcoder-master/data/icd9Comorbidities.rda")
+load("~/My-R-User-Libraries/icdcoder-master/data/icd9Hierarchy.rda")
+load("~/My-R-User-Libraries/icdcoder-master/data/icd9to10GEMs.rda")
+```
+
+
+```{r}
+# connecting to the database
+db_conn <- DBI::dbConnect(
+  odbc::odbc(),
+  DRIVER = "ODBC Driver 17 for SQL Server",
+  SERVER = "PRTPRDSQL36.stats.govt.nz,1433",
+  Trusted_Connection= "yes",
+  Database= "IDI_Clean_20210420",
+)
+```
+
+
+```{r}
+# creating a database of diagnoses from 2016-2020 inclusive hospital discharges
+diagnosis_db <- db_conn %>% 
+  tbl(in_schema("moh_clean", "pub_fund_hosp_discharges_event")) %>% 
+  select(
+    snz_uid,
+    moh_evt_event_id_nbr, 
+    moh_evt_evst_date,
+    moh_evt_even_date,
+    moh_evt_los_nbr,
+    moh_evt_cost_weight_amt,
+    moh_evt_cost_wgt_code
+  ) %>% 
+  filter(moh_evt_evst_date > "2015-12-31" & moh_evt_evst_date < "2021-01-01") %>% 
+  inner_join(
+    db_conn %>% 
+      tbl(in_schema("moh_clean", "pub_fund_hosp_discharges_diag")) %>% 
+      select(
+        moh_dia_event_id_nbr,
+        moh_dia_diagnosis_type_code,
+        moh_dia_diag_sequence_code,
+        moh_dia_clinical_code
+      ),
+    by=c("moh_evt_event_id_nbr"="moh_dia_event_id_nbr")
+  )
+```
+
+```{r}
+patientData_db <- db_conn %>% 
+  tbl(in_schema("data", "personal_detail")) %>% 
+  select(
+    snz_uid,
+    snz_sex_gender_code,
+    snz_birth_year_nbr,
+    snz_birth_month_nbr,
+    snz_birth_date_proxy,
+    snz_ethnicity_grp1_nbr,
+    snz_ethnicity_grp2_nbr,
+    snz_ethnicity_grp3_nbr,
+    snz_ethnicity_grp4_nbr,
+    snz_ethnicity_grp5_nbr,
+    snz_ethnicity_grp6_nbr) %>%
+  filter(!is.na(snz_sex_gender_code) & !is.na(snz_birth_date_proxy))
+
+```
+
+
+```{r}
+patientData <- patientData_db %>% 
+  as_tibble() %>% 
+   rename(
+    "patient_id" = "snz_uid",
+    "patient_sex"= "snz_sex_gender_code", 
+    "patient_dateBirth" = "snz_birth_date_proxy",
+    "dob_year" = "snz_birth_year_nbr",
+    "dob_mn" = "snz_birth_month_nbr",
+    "euro" = "snz_ethnicity_grp1_nbr",
+    "maori" = "snz_ethnicity_grp2_nbr",
+    "pacific" = "snz_ethnicity_grp3_nbr",
+    "asia" = "snz_ethnicity_grp4_nbr",
+    "melaa" = "snz_ethnicity_grp5_nbr",
+    "other"= "snz_ethnicity_grp6_nbr") %>% 
+  relocate(patient_dateBirth, .after = patient_sex) %>% 
+  filter(patient_sex %in% c("1", "2") & # 1 = Female, 2 = Male
+           2020 - dob_year < 100) 
+
+```
+
+
+```{r}
+diagnosisData <-  diagnosis_db %>% 
+  select(snz_uid, 
+         moh_evt_event_id_nbr, 
+         moh_dia_clinical_code, 
+         moh_dia_diagnosis_type_code, 
+         moh_dia_diag_sequence_code) %>% 
+  as_tibble() %>% 
+  rename(
+    "patient_id" = "snz_uid",
+    "admission_id" = "moh_evt_event_id_nbr",
+    "diagnosis_code" = "moh_dia_clinical_code") %>% 
+  filter(patient_id %in% patientData$patient_id & 
+           isValidICD(diagnosis_code, "icd10"))
+
+```
+
+```{r}
+patientData %>% 
+  filter(2020 - dob_year < 100) %>% 
+  ggplot(aes(x=dob_year, color=patient_sex))+
+  geom_bar()+
+  geom_hline(yintercept = 2000, linetype="dashed")+
+  geom_text(aes(1918, 2000, label="2000"))+
+  coord_cartesian(clip = "off")+
+  theme_minimal()
+ggsave("results/dob_year_sex.pdf")
+```
+
+
+```{r}
+admissionData <-  diagnosis_db %>% 
+  distinct(
+    snz_uid,
+    moh_evt_event_id_nbr,
+    moh_evt_evst_date,
+    moh_evt_even_date) %>% 
+  as_tibble() %>% 
+  rename(
+    "patient_id" = "snz_uid",
+    "admission_id" = "moh_evt_event_id_nbr",
+    "admissionStartDate" = "moh_evt_evst_date",
+    "admissionEndDate" = "moh_evt_even_date") %>% 
+  filter(patient_id %in% patientData$patient_id)
+```
+
+```{r}
+patientData <- patientData_db %>% 
+  as_tibble() %>% 
+   rename(
+    "patient_id" = "snz_uid",
+    "patient_sex"= "snz_sex_gender_code", 
+    "patient_dateBirth" = "snz_birth_date_proxy",
+    "dob_year" = "snz_birth_year_nbr",
+    "dob_mn" = "snz_birth_month_nbr",
+    "euro" = "snz_ethnicity_grp1_nbr",
+    "maori" = "snz_ethnicity_grp2_nbr",
+    "pacific" = "snz_ethnicity_grp3_nbr",
+    "asia" = "snz_ethnicity_grp4_nbr",
+    "melaa" = "snz_ethnicity_grp5_nbr",
+    "other"= "snz_ethnicity_grp6_nbr") %>% 
+  relocate(patient_dateBirth, .after = patient_sex) %>% 
+  filter(patient_sex %in% c("1", "2") & # 1 = Female, 2 = Male
+           2020 - dob_year < 100) %>% filter(patient_id %in% diagnosisData$patient_id)
+```
+
+```{r}
+patientData %>% 
+  write_tsv("data/patientData.txt")
+diagnosisData %>% 
+  write_tsv("data/diagnosisData.txt")
+admissionData %>% 
+  write_tsv("data/admissionData.txt")
+
+```
+
+
+```{r}
+# databasePath refers to the three txt files above containing the patient admission data and diagnoses. codesPth refers to indexDiseaseCode.txt. 
+comor_obj <- query(databasePth = "data",
+      codesPth = "data", 
+      admissionDataSep = "-",
+      birthDataSep = "-")
+save(comor_obj, file = "comor_obj.RData")
+```
+
+```{r}
+# before running this, if prev was ran during a diff session, load comor_obj.Rdata into workspace
+# before running this, move data.Rdata file (can't remember exact name but not the direction one) into data folder and rename allData.RData
+ComorAll <- comorbidityAnalysis(comor_obj, 
+                    codesPth = "data",
+                    databasePth = "data",
+                    cores = 4)
+ComorAll@result %>%
+  select(-disA, -disB, -AB, -AnotB, -BnotA, -notAnotB) %>% 
+  write_tsv("results/autism_all.txt")
+```
+
+```{r}
+ComorMale <- comorbidityAnalysis(comor_obj, 
+                     codesPth = "data",
+                     databasePth = "data",
+                     sex = "1",
+                     cores = 4)
+ComorMale@result %>%
+   select(-disA, -disB, -AB, -AnotB, -BnotA, -notAnotB) %>% 
+   write_tsv("results/autism_male.txt")
+```
+
+```{r}
+ComorFemale <- comorbidityAnalysis(comor_obj, 
+                     codesPth = "data",
+                     databasePth = "data",
+                     sex = "2",
+                     cores = 4)
+ComorFemale@result %>%
+   select(-disA, -disB, -AB, -AnotB, -BnotA, -notAnotB) %>% 
+   write_tsv("results/autism_female.txt")
+
+```
+
+
+```{r}
+comor_obj
+```
+
+```{r}
+ComorAll
+```
+
+```{r}
+ComorMale
+```
+
+```{r}
+ComorFemale
+```
