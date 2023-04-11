@@ -1,0 +1,120 @@
+---
+title: "MR_analysis"
+author: "Catriona M"
+date: "3/10/2023"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_knit$set(root.dir = "/home/rstudio/")
+```
+
+# Run adult or fetal
+```{r}
+adult = "sig_eqtls_adult_brain_cortex.txt"
+fetal = "significant_eqtls_fetal_brain_cortex.txt"
+a_or_f = adult
+```
+
+
+# Loading required libraries
+```{r}
+library(remotes)
+#install_github("MRCIEU/TwoSampleMR")
+library(TwoSampleMR)
+library(data.table)
+```
+
+# Exposure data
+```{r}
+exposure = read_exposure_data(filename=a_or_f, sep = "\t",snp_col = "snp",beta_col = "beta",se_col = "beta_se",effect_allele_col = "alt",other_allele_col = "ref",phenotype_col = "gene",eaf="maf",pval_col = "eqtl_pval")
+removal_snps = fread("query_snp_ld.txt", select="rsidt") 
+
+```
+
+
+# Manipulate exposure data
+```{r}
+exposure = subset(exposure, pval.exposure < 0.00001)
+```
+
+# Use Bowden method for filtering of F statistic > 10 to reduce false positives
+```{r}
+bowden_method = function(b, se) {
+  F = b^2/se^2
+  return(F)
+}
+
+for (x in 1:length(exposure$SNP)) {
+  F = bowden_method(exposure$beta.exposure[x],exposure$se.exposure[x])
+  if (F < 10) {exposure[-x,]}
+}
+
+```
+
+# Clumping
+```{r}
+exposure_clumped = clump_data(exposure)
+```
+
+# Save exposure data
+```{r}
+#write.csv(exposure, file = 'adult_exposure.csv')
+```
+
+# Outcome data
+```{r}
+outcome <- extract_outcome_data(
+    snps = exposure$SNP,
+    outcomes = 'ieu-a-1185'
+)
+```
+
+# Harmonise the data (combine and ensure that they are the right way round with effect and outcome alleles)
+```{r}
+dat <- harmonise_data(
+    exposure_dat = exposure_clumped, 
+    outcome_dat = outcome
+)
+```
+# MR analysis
+```{r}
+# First separate the data into those with multiple snps and those without.
+is_duplicate <- duplicated(dat$exposure) | duplicated(dat$exposure, fromLast = TRUE)
+# Create a data frame with only duplicate rows
+duplicate <- dat[is_duplicate, ]
+# Create a data frame with only non-duplicate rows
+non_duplicate <- dat[!is_duplicate, ]
+
+
+# Run MR on each of these separately. Use Wald test for non-duplicates
+res_non <- mr(non_duplicate, method_list = c("mr_wald_ratio"))
+res_dup <- mr(duplicate, method_list = c("mr_egger_regression", "mr_ivw"))
+```
+
+
+
+# Bonferroni correction
+```{r}
+threshold <- 0.05/length(res_non$id.exposure)
+sig_res_non <- subset(res_non, res_non$pval < threshold)
+
+threshold_dup <- 0.05/length(res_dup$id.exposure)
+sig_res_dup <- subset(res_dup, res_dup$pval < threshold_dup)
+#write.csv(sig_res_non, file = 'adult_sig_res.csv')
+```
+
+
+# Graph results
+```{r}
+options(repr.plot.width = 4, repr.plot.height = 5)
+sig_res_non %>%
+    ggplot(aes(x = exposure, y = b))+
+    geom_pointrange(aes(ymin = (b-1.645*se), ymax = (b+1.645*se)), alpha = 0.5)+
+    geom_hline(yintercept = 0, colour = "red", linetype = "dashed")+    
+    coord_flip()+
+    theme_minimal()+
+    labs(x = "Genes", y = "Effect Size on Autism")
+ggsave("MR_results.pdf", width = 5, height =2, useDingbats=FALSE)
+```
+
